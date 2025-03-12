@@ -82,8 +82,8 @@
   "var/session-cookie.txt")
 
 (defn get-url
-  [day]
-  (str "https://i18n-puzzles.com/puzzle/" day "/input"))
+  [path]
+  (str "https://i18n-puzzles.com/puzzle/" path))
 
 (defn get-session-cookie-value
   []
@@ -94,24 +94,34 @@
 (defmulti get-input
   "Returns the input for the given day. Pass either a long for the day
   or a namespace object which ends in the day-number (will be extracted).
+  In rare cases you can also pass an url-path-string (beginning at the
+  puzzle index) to query.
   Example using long: (get-input 5)
-  Example in namespace `aoc.day05`: (get-input *ns*)"
+  Example in namespace `aoc.day05`: (get-input *ns*)
+  Example with url-path: (get-input \"5/test-input\") ; ->var/5_test-input.txt"
   class)
 
-(defmethod get-input java.lang.Long [day]
+(defn get-input-internal
+  [var-file-name url]
   (io/make-parents "var/dummy") ; ignore return of make-parents
-  (let [filename (str "var/in-" day ".txt")]
-    (when-not (-> filename io/file .exists)
-      (if-let [cookie (get-session-cookie-value)]
-        (spit filename
-              (try
-                (:body
-                  (client/get (get-url day)
-                              {:cookies {"sessionid" {:value cookie}}}))
-                (catch Exception e
-                  (throw (IOException. (str "Error while fetching " (get-url day)) e)))))
-        (throw (IllegalStateException. (str "Cannot http/get input: Missing session string (" *session-cookie-global* " or " *session-cookie-local* ")")))))
-    (slurp filename)))
+  (when-not (-> var-file-name io/file .exists)
+    (if-let [cookie (get-session-cookie-value)]
+      (spit var-file-name
+            (try
+              (:body
+                (client/get url {:cookies {"sessionid" {:value cookie}}}))
+              (catch Exception e
+                (throw (IOException. (str "Error while fetching " url) e)))))
+      (throw (IllegalStateException. (str "Cannot http/get input: Missing session string (" *session-cookie-global* " or " *session-cookie-local* ")")))))
+  (slurp var-file-name))
+
+(defmethod get-input String [url-path]
+  (get-input-internal (str "var/" (str/replace url-path "/" "_") ".txt")
+                      (get-url url-path)))
+
+(defmethod get-input java.lang.Long [day]
+  (get-input-internal (str "var/in-" day ".txt")
+                      (get-url (str day "/input"))))
 
 (defmethod get-input clojure.lang.Namespace [ns]
   (get-input (parse-long (#(subs % (- (count %) 2)) (str ns)))))
